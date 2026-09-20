@@ -526,15 +526,15 @@
     if (fadeRunning) return;
     fadeRunning = true;
     // Very long, very gradual crescendo — starts essentially silent and
-    // eases up over about 75 seconds, curving slowly at first so the
-    // earliest steps are barely perceptible and the song never "jumps in".
-    var STEP_COUNT = 50;
-    var STEP_MS = 1500; // ~75 seconds total
+    // eases up over about 100 seconds, curving very slowly at first so the
+    // earliest steps are imperceptible and the song never "jumps in".
+    var STEP_COUNT = 60;
+    var STEP_MS = 1650; // ~100 seconds total
     for (var i = 0; i <= STEP_COUNT; i++){
       (function(i){
         var progress = i / STEP_COUNT;
-        var eased = Math.pow(progress, 3); // very slow start, gentle finish
-        var v = Math.max(0.002, TARGET_VOLUME * eased);
+        var eased = Math.pow(progress, 4); // very slow start, gentle finish
+        var v = Math.max(0.0015, TARGET_VOLUME * eased);
         setTimeout(function(){
           try { songAudio.volume = v; } catch(err){}
         }, i * STEP_MS);
@@ -544,13 +544,17 @@
 
   function tryPlay(){
     if (playConfirmed || !songAudio) return;
+    // Start fully muted — not just "very quiet" — so there is zero chance
+    // of a stray loud instant while the browser is still spinning up
+    // playback, before our volume ramp has had a moment to take hold.
+    try { songAudio.muted = true; } catch(err){}
     try { songAudio.volume = 0.002; } catch(err){}
     try { songAudio.currentTime = 0; } catch(err){}
     var p = songAudio.play();
     if (p && typeof p.then === 'function'){
       p.then(function(){
         playConfirmed = true;
-        fadeIn();
+        unmuteAndFade();
       }).catch(function(){
         // Blocked this time (common on the very first attempt in some
         // Android browsers) — the next tap will try again.
@@ -558,8 +562,18 @@
     } else {
       // Older browsers without a Promise-based play(): assume it worked.
       playConfirmed = true;
-      fadeIn();
+      unmuteAndFade();
     }
+  }
+
+  function unmuteAndFade(){
+    // A short pause with playback already confirmed running and silent,
+    // then unmute right at the near-zero volume already set, and only then
+    // start the gradual rise.
+    setTimeout(function(){
+      try { songAudio.muted = false; } catch(err){}
+      fadeIn();
+    }, 150);
   }
 
   // Keep trying on every tap/click until playback is actually confirmed —
