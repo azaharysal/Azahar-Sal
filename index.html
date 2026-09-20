@@ -288,22 +288,6 @@
     .hint svg{ animation: none; }
   }
 
-  .music{
-    position:fixed;
-    left:-9999px;
-    top:-9999px;
-    width:1px;
-    height:1px;
-    overflow:hidden;
-    opacity:0;
-    pointer-events:none;
-  }
-  .music iframe{
-    display:block;
-    width:1px;
-    height:1px;
-    border:0;
-  }
 </style>
 </head>
 <body>
@@ -365,17 +349,8 @@
     <span>Toca para pasar la página</span>
   </div>
 
-  <div class="music" id="music">
-    <iframe id="spotifyEmbed"
-      src="https://open.spotify.com/embed/track/1uLGk9TIBqIueLOyqgH3Hj?utm_source=generator&theme=0"
-      height="80"
-      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-      loading="lazy"
-      title="Canción de la boda"></iframe>
-  </div>
+  <audio id="songAudio" src="song.mp3" preload="auto" loop playsinline></audio>
 </div>
-
-<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
 
 <script>
 (function(){
@@ -536,12 +511,13 @@
     if (Math.abs(dx) > 30) flip(dx < 0 ? 'next' : 'prev');
   }, {passive:true});
 
-  // Song: plays through a fully hidden Spotify embed (1x1px, off-screen,
-  // zero-opacity — nothing of it is ever visible). Browsers block sound
-  // before any tap, so it starts on the very first interaction anywhere on
-  // the page, which is normally the same tap that opens the invitation.
-  var spotifyController = null;
-  var wantsPlay = false;
+  // Song: plays through a plain, own-hosted <audio> element (no visible
+  // controls, so nothing of it is ever shown). Being our own file rather
+  // than a cross-origin embed, .play() is direct and synchronous — much
+  // more reliable on Android than the old Spotify iframe. Browsers still
+  // block sound before any tap regardless of source, so it starts on the
+  // very first interaction, normally the same tap that opens the invitation.
+  var songAudio = document.getElementById('songAudio');
   var playConfirmed = false;
   var fadeRunning = false;
   var TARGET_VOLUME = 0.11;
@@ -549,7 +525,6 @@
   function fadeIn(){
     if (fadeRunning) return;
     fadeRunning = true;
-    if (!spotifyController || typeof spotifyController.setVolume !== 'function') return;
     // Very long, very gradual crescendo — starts essentially silent and
     // eases up over about 75 seconds, curving slowly at first so the
     // earliest steps are barely perceptible and the song never "jumps in".
@@ -561,71 +536,31 @@
         var eased = Math.pow(progress, 3); // very slow start, gentle finish
         var v = Math.max(0.002, TARGET_VOLUME * eased);
         setTimeout(function(){
-          try { spotifyController.setVolume(v); } catch(err){}
+          try { songAudio.volume = v; } catch(err){}
         }, i * STEP_MS);
       })(i);
     }
   }
 
-  // Set the volume to near-silent FIRST and let that message land before
-  // telling it to play — otherwise there's a brief race where audio can
-  // start at whatever volume the embed had before ours takes effect, which
-  // is exactly the "jump scare" moment. The very short delay before play()
-  // is still comfortably inside the window Android keeps the tap's
-  // activation alive for.
-  function sendPlay(){
-    if (!spotifyController) return;
-    try {
-      if (typeof spotifyController.setVolume === 'function'){
-        spotifyController.setVolume(0.002);
-      }
-    } catch(err){}
-    try {
-      if (typeof spotifyController.seek === 'function'){
-        spotifyController.seek(0);
-      }
-    } catch(err){}
-    setTimeout(function(){
-      try { spotifyController.play(); } catch(err){}
-    }, 90);
-  }
-
   function tryPlay(){
-    wantsPlay = true;
-    if (playConfirmed) return;
-    if (!spotifyController) return;
-    sendPlay();
-    // If we don't get confirmation that it's actually playing soon after,
-    // try again — some Android browsers (especially in-app WebViews like
-    // WhatsApp's) need more than one attempt.
-    setTimeout(function(){
-      if (!playConfirmed && spotifyController){
-        sendPlay();
-      }
-    }, 700);
-    // Fallback in case "playback_update" isn't supported in this browser:
-    // start the fade-in blindly a couple of seconds after the first
-    // attempt, rather than staying silent forever waiting for a confirmation
-    // that may never arrive.
-    setTimeout(fadeIn, 2000);
+    if (playConfirmed || !songAudio) return;
+    try { songAudio.volume = 0.002; } catch(err){}
+    try { songAudio.currentTime = 0; } catch(err){}
+    var p = songAudio.play();
+    if (p && typeof p.then === 'function'){
+      p.then(function(){
+        playConfirmed = true;
+        fadeIn();
+      }).catch(function(){
+        // Blocked this time (common on the very first attempt in some
+        // Android browsers) — the next tap will try again.
+      });
+    } else {
+      // Older browsers without a Promise-based play(): assume it worked.
+      playConfirmed = true;
+      fadeIn();
+    }
   }
-
-  window.onSpotifyIframeApiReady = function(IFrameAPI){
-    var element = document.getElementById('spotifyEmbed');
-    var options = { uri: 'spotify:track:1uLGk9TIBqIueLOyqgH3Hj' };
-    IFrameAPI.createController(element, options, function(EmbedController){
-      spotifyController = EmbedController;
-      if (typeof EmbedController.addListener === 'function'){
-        EmbedController.addListener('playback_update', function(e){
-          if (e && e.data && e.data.isPaused === false && !playConfirmed){
-            playConfirmed = true;
-            fadeIn();
-          }
-        });
-      }
-      if (wantsPlay) tryPlay();
-    });
-  };
 
   // Keep trying on every tap/click until playback is actually confirmed —
   // a single missed attempt (common on Android) shouldn't mean silence for
