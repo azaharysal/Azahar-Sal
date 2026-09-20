@@ -1,2 +1,2 @@
-# Azahar-Sal
+# Azahar y Sal
 Invitación 
